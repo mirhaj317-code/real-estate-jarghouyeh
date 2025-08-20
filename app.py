@@ -6,7 +6,7 @@ import time
 import base64
 import folium
 from streamlit_folium import st_folium
-import requests
+import string
 
 # دیتابیس و جدول‌ها
 conn = sqlite3.connect("real_estate.db", check_same_thread=False)
@@ -15,11 +15,10 @@ c = conn.cursor()
 def setup_db():
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
+            email TEXT PRIMARY KEY,
             name TEXT,
             password_hash TEXT,
-            role TEXT,
-            phone TEXT
+            role TEXT
         )
     ''')
     c.execute('''
@@ -47,16 +46,6 @@ def setup_db():
             FOREIGN KEY (property_id) REFERENCES properties(id)
         )
     ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS comments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            property_id INTEGER,
-            username TEXT,
-            comment TEXT,
-            rating INTEGER,
-            FOREIGN KEY (property_id) REFERENCES properties(id)
-        )
-    ''')
     conn.commit()
 
 # هش کردن رمز عبور
@@ -64,52 +53,30 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 # ثبت‌نام کاربر
-def register_user(username, name, password, phone, role="public"):
+def register_user(email, name, password, role="public"):
     try:
-        c.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?)",
-                  (username, name, hash_password(password), role, phone))
+        c.execute("INSERT INTO users VALUES (?, ?, ?, ?)",
+                  (email, name, hash_password(password), role))
         conn.commit()
         return True
     except sqlite3.IntegrityError:
         return False
 
 # ورود کاربر
-def login_user(username, password):
-    c.execute("SELECT password_hash, role, name FROM users WHERE username=?", (username,))
+def login_user(email, password):
+    c.execute("SELECT password_hash, role, name FROM users WHERE email=?", (email,))
     res = c.fetchone()
     if res and res[0] == hash_password(password):
-        return {"username": username, "role": res[1], "name": res[2]}
+        return {"email": email, "role": res[1], "name": res[2]}
     return None
 
-# ارسال OTP با SMS.ir
-def send_otp(phone):
-    otp = str(random.randint(100000, 999999))
-    st.session_state['otp_code'] = otp
-    st.session_state['otp_phone'] = phone
-    st.info(f"کد تایید به شماره {phone} ارسال شد (برای تست: {otp})")
-
-    # نسخه واقعی با SMS.ir
-    try:
-        api_key = st.secrets["sms"]["api_key"]
-        sender = st.secrets["sms"]["sender"]
-        url = f"https://api.sms.ir/v1/send/verify"
-        payload = {
-            "Mobile": phone,
-            "TemplateId": sender,
-            "ParameterArray": [{"Parameter": "Code", "ParameterValue": otp}]
-        }
-        headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        if response.status_code == 200:
-            st.success("پیامک با موفقیت ارسال شد.")
-        else:
-            st.warning("ارسال پیامک واقعی انجام نشد، از نسخه شبیه‌سازی استفاده شد.")
-    except Exception as e:
-        st.warning(f"ارسال پیامک واقعی انجام نشد: {e}")
-
-# تایید کد OTP
-def verify_otp(input_code):
-    return input_code == st.session_state.get('otp_code')
+# بازنشانی رمز فراموش شده ساده
+def reset_password(email):
+    temp_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+    st.session_state['reset_pass'] = temp_pass
+    st.session_state['reset_email'] = email
+    st.info(f"رمز موقت برای {email}: {temp_pass} (برای ورود استفاده کنید)")
+    # کاربر بعد از ورود می‌تواند رمز جدید انتخاب کند
 
 # افزودن ملک
 def add_property(data, images):
@@ -139,66 +106,53 @@ def show_map(properties_df):
         ).add_to(m)
     st_folium(m, width=700, height=500)
 
-# UI با رنگ و لعاب سنتی
+# استایل سنتی
 def custom_style():
     st.markdown("""
         <style>
-        body {
-            background-color: #fdf6e3;
-            color: #333;
-            font-family: 'Vazirmatn', Tahoma, sans-serif;
-        }
-        .stButton>button {
-            background-color: #a52a2a;
-            color: white;
-            border-radius: 12px;
-            padding: 8px 20px;
-            font-weight: bold;
-        }
-        .stTextInput>div>input {
-            border: 2px solid #a52a2a;
-            border-radius: 10px;
-            padding: 6px;
-            font-size: 16px;
-        }
-        .css-1d391kg {
-            background-color: #fff0f0 !important;
-            border-radius: 15px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        .stRadio > div > label {
-            font-weight: bold;
-            color: #a52a2a;
-        }
+        body {background-color: #fdf6e3; color: #333; font-family: 'Vazirmatn', Tahoma, sans-serif;}
+        .stButton>button {background-color: #a52a2a; color: white; border-radius: 12px; padding: 8px 20px; font-weight: bold;}
+        .stTextInput>div>input {border: 2px solid #a52a2a; border-radius: 10px; padding: 6px; font-size: 16px;}
+        .css-1d391kg {background-color: #fff0f0 !important; border-radius: 15px; padding: 20px; margin-bottom: 20px;}
+        .stRadio > div > label {font-weight: bold; color: #a52a2a;}
         </style>
     """, unsafe_allow_html=True)
 
-# صفحه ورود با OTP
+# صفحه ورود و ثبت‌نام
 def login_page():
-    st.subheader("ورود با شماره تلفن همراه")
-    phone = st.text_input("شماره تلفن همراه")
-    if st.button("ارسال کد تایید"):
-        if phone.strip() == "" or not phone.isdigit() or len(phone) < 10:
-            st.error("شماره تلفن معتبر نیست")
-        else:
-            send_otp(phone)
-    if 'otp_code' in st.session_state:
-        otp_input = st.text_input("کد تایید ارسال شده")
-        if st.button("تایید کد"):
-            if verify_otp(otp_input):
-                c.execute("SELECT username FROM users WHERE phone=?", (phone,))
-                user = c.fetchone()
-                if user is None:
-                    username = phone
-                    register_user(username, phone, "defaultpassword", phone)
-                    st.success("کاربر جدید ساخته شد.")
-                st.session_state['user'] = {"username": phone, "role": "public", "name": phone}
-                st.experimental_rerun()
-            else:
-                st.error("کد تایید اشتباه است.")
+    st.subheader("ورود یا ثبت‌نام با ایمیل")
+    email = st.text_input("ایمیل")
+    password = st.text_input("رمز عبور", type="password")
 
-# صفحه ثبت ملک پولی
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("ورود"):
+            user = login_user(email, password)
+            if user:
+                st.session_state['user'] = user
+                st.experimental_rerun()
+            elif 'reset_pass' in st.session_state and email == st.session_state['reset_email'] and password == st.session_state['reset_pass']:
+                # ورود با رمز موقت
+                st.success("وارد شدی! لطفاً رمز جدید انتخاب کن.")
+                new_pass = st.text_input("رمز جدید", type="password")
+                if st.button("تغییر رمز"):
+                    c.execute("UPDATE users SET password_hash=? WHERE email=?", (hash_password(new_pass), email))
+                    conn.commit()
+                    st.success("رمز با موفقیت تغییر کرد.")
+            else:
+                st.error("ایمیل یا رمز عبور اشتباه است.")
+    with col2:
+        if st.button("ثبت‌نام"):
+            name = st.text_input("نام و نام خانوادگی")
+            if register_user(email, name, password):
+                st.success("ثبت‌نام با موفقیت انجام شد.")
+            else:
+                st.error("ایمیل قبلا ثبت شده است.")
+
+    if st.button("رمز عبور فراموش شده؟"):
+        reset_password(email)
+
+# ثبت ملک پولی
 def register_property_page():
     st.subheader("ثبت ملک - هزینه: ۴۰ هزار تومان")
     title = st.text_input("عنوان ملک")
@@ -242,7 +196,7 @@ def register_property_page():
             'property_type': property_type,
             'latitude': latitude,
             'longitude': longitude,
-            'owner': st.session_state['user']['username'],
+            'owner': st.session_state['user']['email'],
             'description': description,
             'rooms': rooms,
             'building_age': building_age,
@@ -251,18 +205,18 @@ def register_property_page():
         add_property(data, images_b64)
         st.success("ملک با موفقیت ثبت شد!")
 
-# پنل‌ها و صفحات
+# پنل‌ها
 def admin_panel():
     st.subheader("پنل مدیر")
-    st.write("مدیریت مشاوران")
-    c.execute("SELECT username, name FROM users WHERE role='agent'")
+    st.write("مدیریت کاربران")
+    c.execute("SELECT email, name FROM users WHERE role='agent'")
     agents = c.fetchall()
     for agent in agents:
         col1, col2, col3 = st.columns([3,3,1])
         col1.write(agent[0])
         col2.write(agent[1])
         if col3.button(f"حذف {agent[0]}"):
-            c.execute("DELETE FROM users WHERE username=?", (agent[0],))
+            c.execute("DELETE FROM users WHERE email=?", (agent[0],))
             conn.commit()
             st.experimental_rerun()
     st.markdown("---")
@@ -274,7 +228,7 @@ def admin_panel():
 
 def agent_panel():
     st.subheader("پنل مشاور")
-    c.execute("SELECT * FROM properties WHERE owner=?", (st.session_state['user']['username'],))
+    c.execute("SELECT * FROM properties WHERE owner=?", (st.session_state['user']['email'],))
     props = c.fetchall()
     for prop in props:
         st.write(f"عنوان: {prop[1]}, قیمت: {prop[2]}, شهر: {prop[4]}")
@@ -290,10 +244,11 @@ def public_panel():
     df = pd.DataFrame(all_props, columns=['id','title','price','area','city','property_type','latitude','longitude','owner','description','rooms','building_age','facilities'])
     show_map(df)
 
+# صفحه اصلی
 def main():
     setup_db()
     custom_style()
-    st.title("سیستم مدیریت املاک پیشرفته با OTP و پرداخت")
+    st.title("سیستم مدیریت املاک با Gmail و رمز عبور ساده")
     if 'user' not in st.session_state:
         login_page()
     else:
@@ -308,5 +263,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-  
-      
