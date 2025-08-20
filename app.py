@@ -6,8 +6,7 @@ import time
 import base64
 import folium
 from streamlit_folium import st_folium
-from twilio.rest import Client
-import pandas as pd
+import requests
 
 # دیتابیس و جدول‌ها
 conn = sqlite3.connect("real_estate.db", check_same_thread=False)
@@ -82,24 +81,33 @@ def login_user(username, password):
         return {"username": username, "role": res[1], "name": res[2]}
     return None
 
-# ارسال OTP با Twilio
+# ارسال OTP با SMS.ir
 def send_otp(phone):
     otp = str(random.randint(100000, 999999))
     st.session_state['otp_code'] = otp
     st.session_state['otp_phone'] = phone
+    st.info(f"کد تایید به شماره {phone} ارسال شد (برای تست: {otp})")
 
-    account_sid = st.secrets["twilio"]["account_sid"]
-    auth_token = st.secrets["twilio"]["auth_token"]
-    from_phone = st.secrets["twilio"]["from_phone"]
+    # نسخه واقعی با SMS.ir
+    try:
+        api_key = st.secrets["sms"]["api_key"]
+        sender = st.secrets["sms"]["sender"]
+        url = f"https://api.sms.ir/v1/send/verify"
+        payload = {
+            "Mobile": phone,
+            "TemplateId": sender,
+            "ParameterArray": [{"Parameter": "Code", "ParameterValue": otp}]
+        }
+        headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        if response.status_code == 200:
+            st.success("پیامک با موفقیت ارسال شد.")
+        else:
+            st.warning("ارسال پیامک واقعی انجام نشد، از نسخه شبیه‌سازی استفاده شد.")
+    except Exception as e:
+        st.warning(f"ارسال پیامک واقعی انجام نشد: {e}")
 
-    client = Client(account_sid, auth_token)
-    client.messages.create(
-        body=f"کد تایید شما: {otp}",
-        from_=from_phone,
-        to=phone
-    )
-    st.success(f"کد تایید به شماره {phone} ارسال شد.")
-
+# تایید کد OTP
 def verify_otp(input_code):
     return input_code == st.session_state.get('otp_code')
 
@@ -117,7 +125,7 @@ def add_property(data, images):
         c.execute("INSERT INTO images (property_id, image) VALUES (?, ?)", (prop_id, img))
     conn.commit()
 
-# نقشه
+# ساخت نقشه
 def show_map(properties_df):
     if properties_df.empty:
         st.info("هیچ ملکی وجود ندارد.")
@@ -131,15 +139,38 @@ def show_map(properties_df):
         ).add_to(m)
     st_folium(m, width=700, height=500)
 
-# استایل سنتی
+# UI با رنگ و لعاب سنتی
 def custom_style():
     st.markdown("""
         <style>
-        body {background-color: #fdf6e3; color: #333; font-family: 'Vazirmatn', Tahoma, sans-serif;}
-        .stButton>button {background-color: #a52a2a; color: white; border-radius: 12px; padding: 8px 20px; font-weight: bold;}
-        .stTextInput>div>input {border: 2px solid #a52a2a; border-radius: 10px; padding: 6px; font-size: 16px;}
-        .css-1d391kg {background-color: #fff0f0 !important; border-radius: 15px; padding: 20px; margin-bottom: 20px;}
-        .stRadio > div > label {font-weight: bold; color: #a52a2a;}
+        body {
+            background-color: #fdf6e3;
+            color: #333;
+            font-family: 'Vazirmatn', Tahoma, sans-serif;
+        }
+        .stButton>button {
+            background-color: #a52a2a;
+            color: white;
+            border-radius: 12px;
+            padding: 8px 20px;
+            font-weight: bold;
+        }
+        .stTextInput>div>input {
+            border: 2px solid #a52a2a;
+            border-radius: 10px;
+            padding: 6px;
+            font-size: 16px;
+        }
+        .css-1d391kg {
+            background-color: #fff0f0 !important;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .stRadio > div > label {
+            font-weight: bold;
+            color: #a52a2a;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -167,7 +198,7 @@ def login_page():
             else:
                 st.error("کد تایید اشتباه است.")
 
-# ثبت ملک با پرداخت
+# صفحه ثبت ملک پولی
 def register_property_page():
     st.subheader("ثبت ملک - هزینه: ۴۰ هزار تومان")
     title = st.text_input("عنوان ملک")
@@ -198,7 +229,11 @@ def register_property_page():
         time.sleep(2)
         st.success("پرداخت با موفقیت انجام شد.")
 
-        images_b64 = [uploaded_file.read() for uploaded_file in uploaded_files]
+        images_b64 = []
+        for uploaded_file in uploaded_files:
+            bytes_data = uploaded_file.read()
+            images_b64.append(bytes_data)
+
         data = {
             'title': title,
             'price': price,
@@ -216,7 +251,7 @@ def register_property_page():
         add_property(data, images_b64)
         st.success("ملک با موفقیت ثبت شد!")
 
-# پنل‌ها
+# پنل‌ها و صفحات
 def admin_panel():
     st.subheader("پنل مدیر")
     st.write("مدیریت مشاوران")
@@ -251,14 +286,14 @@ def public_panel():
     st.write("جستجو و مشاهده املاک")
     c.execute("SELECT * FROM properties")
     all_props = c.fetchall()
+    import pandas as pd
     df = pd.DataFrame(all_props, columns=['id','title','price','area','city','property_type','latitude','longitude','owner','description','rooms','building_age','facilities'])
     show_map(df)
 
-# صفحه اصلی
 def main():
     setup_db()
     custom_style()
-    st.title("سیستم مدیریت املاک پیشرفته با احراز هویت OTP و پرداخت")
+    st.title("سیستم مدیریت املاک پیشرفته با OTP و پرداخت")
     if 'user' not in st.session_state:
         login_page()
     else:
@@ -273,3 +308,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+  
+      
