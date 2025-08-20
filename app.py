@@ -2,264 +2,215 @@ import streamlit as st
 import sqlite3
 import hashlib
 import random
-import time
-import base64
+import string
 import folium
 from streamlit_folium import st_folium
-import string
 
-# دیتابیس و جدول‌ها
-conn = sqlite3.connect("real_estate.db", check_same_thread=False)
-c = conn.cursor()
+# -----------------------------
+# دیتابیس
+# -----------------------------
+def get_connection():
+    return sqlite3.connect("real_estate.db")
 
-def setup_db():
-    c.execute('''
+def create_tables():
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            email TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
+            email TEXT UNIQUE,
             password_hash TEXT,
             role TEXT
         )
-    ''')
-    c.execute('''
+    """)
+    c.execute("""
         CREATE TABLE IF NOT EXISTS properties (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
             title TEXT,
-            price INTEGER,
-            area INTEGER,
-            city TEXT,
-            property_type TEXT,
+            description TEXT,
+            price REAL,
             latitude REAL,
             longitude REAL,
-            owner TEXT,
-            description TEXT,
-            rooms INTEGER,
-            building_age INTEGER,
-            facilities TEXT
+            is_public INTEGER,
+            paid INTEGER,
+            FOREIGN KEY(user_id) REFERENCES users(id)
         )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS images (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            property_id INTEGER,
-            image BLOB,
-            FOREIGN KEY (property_id) REFERENCES properties(id)
-        )
-    ''')
+    """)
     conn.commit()
+    conn.close()
 
-# هش کردن رمز عبور
+# -----------------------------
+# رمزنگاری پسورد
+# -----------------------------
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# ثبت‌نام کاربر
-def register_user(email, name, password, role="public"):
-    try:
-        c.execute("INSERT INTO users VALUES (?, ?, ?, ?)",
-                  (email, name, hash_password(password), role))
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
+# -----------------------------
+# مدیریت کاربر
+# -----------------------------
+def add_user(name, email, password, role="user"):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)",
+              (name, email, hash_password(password), role))
+    conn.commit()
+    conn.close()
 
-# ورود کاربر
 def login_user(email, password):
-    c.execute("SELECT password_hash, role, name FROM users WHERE email=?", (email,))
-    res = c.fetchone()
-    if res and res[0] == hash_password(password):
-        return {"email": email, "role": res[1], "name": res[2]}
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT id, password_hash, role, name FROM users WHERE email=?", (email,))
+    data = c.fetchone()
+    conn.close()
+    if data and data[1] == hash_password(password):
+        return {"id": data[0], "role": data[2], "name": data[3]}
     return None
 
-# بازنشانی رمز فراموش شده ساده
-def reset_password(email):
-    temp_pass = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
-    st.session_state['reset_pass'] = temp_pass
-    st.session_state['reset_email'] = email
-    st.info(f"رمز موقت برای {email}: {temp_pass} (برای ورود استفاده کنید)")
-    # کاربر بعد از ورود می‌تواند رمز جدید انتخاب کند
-
-# افزودن ملک
-def add_property(data, images):
-    c.execute('''INSERT INTO properties 
-                 (title, price, area, city, property_type, latitude, longitude, owner, description, rooms, building_age, facilities)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
-                    data['title'], data['price'], data['area'], data['city'], data['property_type'],
-                    data['latitude'], data['longitude'], data['owner'], data['description'], data['rooms'],
-                    data['building_age'], data['facilities']
-                ))
-    prop_id = c.lastrowid
-    for img in images:
-        c.execute("INSERT INTO images (property_id, image) VALUES (?, ?)", (prop_id, img))
+def reset_password(email, new_password):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("UPDATE users SET password_hash=? WHERE email=?",
+              (hash_password(new_password), email))
     conn.commit()
+    conn.close()
 
-# ساخت نقشه
-def show_map(properties_df):
-    if properties_df.empty:
-        st.info("هیچ ملکی وجود ندارد.")
-        return
-    m = folium.Map(location=[properties_df['latitude'].mean(), properties_df['longitude'].mean()], zoom_start=12)
-    for _, row in properties_df.iterrows():
-        folium.Marker(
-            [row['latitude'], row['longitude']],
-            popup=f"{row['title']} - قیمت: {row['price']} تومان",
-            tooltip=row['title']
-        ).add_to(m)
-    st_folium(m, width=700, height=500)
+# -----------------------------
+# مدیریت ملک
+# -----------------------------
+def add_property(user_id, title, desc, price, lat, lon, is_public, paid):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO properties (user_id, title, description, price, latitude, longitude, is_public, paid)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (user_id, title, desc, price, lat, lon, is_public, paid))
+    conn.commit()
+    conn.close()
 
-# استایل سنتی
-def custom_style():
-    st.markdown("""
-        <style>
-        body {background-color: #fdf6e3; color: #333; font-family: 'Vazirmatn', Tahoma, sans-serif;}
-        .stButton>button {background-color: #a52a2a; color: white; border-radius: 12px; padding: 8px 20px; font-weight: bold;}
-        .stTextInput>div>input {border: 2px solid #a52a2a; border-radius: 10px; padding: 6px; font-size: 16px;}
-        .css-1d391kg {background-color: #fff0f0 !important; border-radius: 15px; padding: 20px; margin-bottom: 20px;}
-        .stRadio > div > label {font-weight: bold; color: #a52a2a;}
-        </style>
-    """, unsafe_allow_html=True)
+def get_properties(filter_public=True):
+    conn = get_connection()
+    c = conn.cursor()
+    if filter_public:
+        c.execute("SELECT * FROM properties WHERE is_public=1 AND paid=1")
+    else:
+        c.execute("SELECT * FROM properties")
+    data = c.fetchall()
+    conn.close()
+    return data
 
-# صفحه ورود و ثبت‌نام
-def login_page():
-    st.subheader("ورود یا ثبت‌نام با ایمیل")
+# -----------------------------
+# پرداخت آنلاین شبیه‌سازی‌شده
+# -----------------------------
+def process_payment(amount):
+    # اینجا میتونی با درگاه واقعی جایگزین کنی
+    st.info(f"پرداخت {amount} تومان در حال انجام...")
+    time.sleep(2)
+    st.success("پرداخت موفق ✅")
+    return True
+
+# -----------------------------
+# صفحات
+# -----------------------------
+def signup_page():
+    st.subheader("ثبت‌نام")
+    name = st.text_input("نام کامل")
     email = st.text_input("ایمیل")
     password = st.text_input("رمز عبور", type="password")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("ورود"):
-            user = login_user(email, password)
-            if user:
-                st.session_state['user'] = user
-                st.experimental_rerun()
-            elif 'reset_pass' in st.session_state and email == st.session_state['reset_email'] and password == st.session_state['reset_pass']:
-                # ورود با رمز موقت
-                st.success("وارد شدی! لطفاً رمز جدید انتخاب کن.")
-                new_pass = st.text_input("رمز جدید", type="password")
-                if st.button("تغییر رمز"):
-                    c.execute("UPDATE users SET password_hash=? WHERE email=?", (hash_password(new_pass), email))
-                    conn.commit()
-                    st.success("رمز با موفقیت تغییر کرد.")
-            else:
-                st.error("ایمیل یا رمز عبور اشتباه است.")
-    with col2:
-        if st.button("ثبت‌نام"):
-            name = st.text_input("نام و نام خانوادگی")
-            if register_user(email, name, password):
-                st.success("ثبت‌نام با موفقیت انجام شد.")
-            else:
-                st.error("ایمیل قبلا ثبت شده است.")
-
-    if st.button("رمز عبور فراموش شده؟"):
-        reset_password(email)
-
-# ثبت ملک پولی
-def register_property_page():
-    st.subheader("ثبت ملک - هزینه: ۴۰ هزار تومان")
-    title = st.text_input("عنوان ملک")
-    price = st.number_input("قیمت کل (تومان)", min_value=0, step=100000)
-    area = st.number_input("متراژ (متر مربع)", min_value=0, step=1)
-    city = st.text_input("شهر")
-    property_type = st.selectbox("نوع ملک", ["آپارتمان", "ویلایی", "مغازه", "زمین"])
-    latitude = st.number_input("عرض جغرافیایی", format="%.6f")
-    longitude = st.number_input("طول جغرافیایی", format="%.6f")
-    description = st.text_area("توضیحات بیشتر")
-    rooms = st.number_input("تعداد اتاق", min_value=0, step=1)
-    building_age = st.number_input("سن بنا (سال)", min_value=0, step=1)
-    facilities = st.text_area("امکانات")
-    uploaded_files = st.file_uploader("آپلود تصاویر ملک (حداکثر ۵ عدد)", accept_multiple_files=True, type=["png","jpg","jpeg"])
-
-    if st.button("پرداخت و ثبت ملک"):
-        if not title or price <= 0 or not city:
-            st.error("لطفا تمام فیلدهای ضروری را پر کنید.")
-            return
-        if len(uploaded_files) == 0:
-            st.error("لطفا حداقل یک تصویر آپلود کنید.")
-            return
-        if len(uploaded_files) > 5:
-            st.error("حداکثر ۵ تصویر مجاز است.")
-            return
-
-        st.info("در حال انجام پرداخت ۴۰ هزار تومان به شماره کارت 6037701120725572 ...")
-        time.sleep(2)
-        st.success("پرداخت با موفقیت انجام شد.")
-
-        images_b64 = []
-        for uploaded_file in uploaded_files:
-            bytes_data = uploaded_file.read()
-            images_b64.append(bytes_data)
-
-        data = {
-            'title': title,
-            'price': price,
-            'area': area,
-            'city': city,
-            'property_type': property_type,
-            'latitude': latitude,
-            'longitude': longitude,
-            'owner': st.session_state['user']['email'],
-            'description': description,
-            'rooms': rooms,
-            'building_age': building_age,
-            'facilities': facilities
-        }
-        add_property(data, images_b64)
-        st.success("ملک با موفقیت ثبت شد!")
-
-# پنل‌ها
-def admin_panel():
-    st.subheader("پنل مدیر")
-    st.write("مدیریت کاربران")
-    c.execute("SELECT email, name FROM users WHERE role='agent'")
-    agents = c.fetchall()
-    for agent in agents:
-        col1, col2, col3 = st.columns([3,3,1])
-        col1.write(agent[0])
-        col2.write(agent[1])
-        if col3.button(f"حذف {agent[0]}"):
-            c.execute("DELETE FROM users WHERE email=?", (agent[0],))
-            conn.commit()
-            st.experimental_rerun()
-    st.markdown("---")
-    st.write("لیست همه ملک‌ها")
-    c.execute("SELECT * FROM properties")
-    props = c.fetchall()
-    for prop in props:
-        st.write(f"عنوان: {prop[1]}, قیمت: {prop[2]}, شهر: {prop[4]}")
-
-def agent_panel():
-    st.subheader("پنل مشاور")
-    c.execute("SELECT * FROM properties WHERE owner=?", (st.session_state['user']['email'],))
-    props = c.fetchall()
-    for prop in props:
-        st.write(f"عنوان: {prop[1]}, قیمت: {prop[2]}, شهر: {prop[4]}")
-
-def public_panel():
-    st.subheader(f"خوش آمدید، {st.session_state['user']['name']}!")
-    register_property_page()
-    st.markdown("---")
-    st.write("جستجو و مشاهده املاک")
-    c.execute("SELECT * FROM properties")
-    all_props = c.fetchall()
-    import pandas as pd
-    df = pd.DataFrame(all_props, columns=['id','title','price','area','city','property_type','latitude','longitude','owner','description','rooms','building_age','facilities'])
-    show_map(df)
-
-# صفحه اصلی
-def main():
-    setup_db()
-    custom_style()
-    st.title("سیستم مدیریت املاک با Gmail و رمز عبور ساده")
-    if 'user' not in st.session_state:
-        login_page()
-    else:
-        user = st.session_state['user']
-        role = user['role']
-        if role == 'admin':
-            admin_panel()
-        elif role == 'agent':
-            agent_panel()
+    if st.button("ثبت‌نام"):
+        if name and email and password:
+            try:
+                add_user(name, email, password)
+                st.success("ثبت‌نام با موفقیت انجام شد ✅ حالا وارد شوید.")
+            except:
+                st.error("این ایمیل قبلا ثبت شده است ❌")
         else:
-            public_panel()
+            st.warning("لطفاً همه‌ی فیلدها را پر کنید.")
 
-if __name__ == "__main__":
+def login_page():
+    st.subheader("ورود")
+    email = st.text_input("ایمیل")
+    password = st.text_input("رمز عبور", type="password")
+    if st.button("ورود"):
+        user = login_user(email, password)
+        if user:
+            st.session_state["user"] = user
+            st.success(f"خوش آمدی {user['name']} 🌹")
+        else:
+            st.error("ایمیل یا رمز عبور اشتباه است ❌")
+    if st.button("فراموشی رمز عبور"):
+        reset_password_page()
+
+def reset_password_page():
+    st.subheader("بازیابی رمز عبور")
+    email = st.text_input("ایمیل ثبت‌شده")
+    new_pass = st.text_input("رمز جدید", type="password")
+    if st.button("تغییر رمز"):
+        reset_password(email, new_pass)
+        st.success("رمز عبور با موفقیت تغییر کرد ✅")
+
+def add_property_page():
+    st.subheader("ثبت ملک جدید")
+    title = st.text_input("عنوان ملک")
+    desc = st.text_area("توضیحات")
+    price = st.number_input("قیمت (تومان)", min_value=0)
+    lat = st.number_input("عرض جغرافیایی", format="%.6f")
+    lon = st.number_input("طول جغرافیایی", format="%.6f")
+    is_public = st.checkbox("نمایش عمومی (نیاز به پرداخت)")
+    paid = 0
+    if is_public and st.button("پرداخت و ثبت ملک"):
+        if process_payment(price):
+            paid = 1
+            add_property(st.session_state["user"]["id"], title, desc, price, lat, lon, 1, paid)
+    elif st.button("ثبت ملک"):
+        add_property(st.session_state["user"]["id"], title, desc, price, lat, lon, 0, paid)
+        st.success("ملک ثبت شد ✅")
+
+def show_properties_page():
+    st.subheader("املاک ثبت‌شده")
+    data = get_properties()
+    for p in data:
+        st.write(f"🏠 {p[2]} | {p[4]} تومان")
+        st.write(f"{p[3]}")
+        if p[5] and p[6]:
+            m = folium.Map(location=[p[5], p[6]], zoom_start=15)
+            st_folium(m, width=700, height=400)
+
+def user_dashboard():
+    st.title("داشبورد کاربر")
+    st.write("اینجا کارهای مخصوص کاربران نمایش داده می‌شود...")
+    add_property_page()
+    show_properties_page()
+
+def admin_dashboard():
+    st.title("داشبورد ادمین")
+    st.write("اینجا مدیریت کامل املاک و کاربران است...")
+    add_property_page()
+    show_properties_page()
+
+# -----------------------------
+# اصلی
+# -----------------------------
+def main():
+    st.sidebar.title("منوی اصلی")
+    menu = st.sidebar.selectbox("برو به صفحه", ["ورود", "ثبت‌نام"])
+    create_tables()
+
+    if "user" not in st.session_state:
+        if menu == "ثبت‌نام":
+            signup_page()
+        else:
+            login_page()
+    else:
+        role = st.session_state["user"]["role"]
+        if role == "admin":
+            admin_dashboard()
+        else:
+            user_dashboard()
+        if st.sidebar.button("خروج"):
+            del st.session_state["user"]
+            st.rerun()
+
+if __name__ == '__main__':
     main()
