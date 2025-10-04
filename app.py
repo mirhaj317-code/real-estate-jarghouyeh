@@ -259,7 +259,7 @@ class AdvancedPropertyRecommender:
                 f"{row['property_type']} {row['city']} "
                 f"{row.get('facilities', '')} {row.get('description', '')} "
                 f"{'آسانسور' if 'آسانسور' in str(row.get('facilities', '')) else ''} "
-                f"{'پارکینگ' if 'پارکینگ' in str(row.get('facilities', '')) else ''} "
+                f"{'پارکینグ' if 'پارکینگ' in str(row.get('facilities', '')) else ''} "
                 f"{'استخر' if 'استخر' in str(row.get('facilities', '')) else ''}"
             )
             features.append(feature_text)
@@ -801,15 +801,14 @@ def valid_phone(phone:str)->bool:
     return bool(re.match(r"^(\+98|0)?9\d{9}$", phone.replace(" ", "")))
 
 def strong_password(pw:str)->bool:
-    if not pw or len(pw) < 8: return False
-    if not re.search(r"[A-Z]", pw): return False
-    if not re.search(r"[a-z]", pw): return False
-    if not re.search(r"[0-9]", pw): return False
-    if not re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]", pw): return False
+    if not pw or len(pw) < 6: return False  # از ۸ به ۶ کاهش دادم
     return True
 
+def simple_password(pw:str)->bool:
+    return len(pw) >= 4  # پسورد ۴ کاراکتری هم قبول کن
+
 def register_user(name: str, email: str, password: str, role="public", phone=None, bio=None) -> bool:
-    if not (name and valid_email(email) and strong_password(password) and valid_phone(phone or "")):
+    if not (name and valid_email(email) and (strong_password(password) or simple_password(password)) and valid_phone(phone or "")):
         return False
     try:
         conn = get_conn(); c = conn.cursor()
@@ -851,7 +850,7 @@ def verify_password(password: str, hashed: str) -> bool:
     return hash_password(password) == hashed
 
 def reset_password(email: str, new_password: str) -> bool:
-    if not (valid_email(email) and strong_password(new_password)): return False
+    if not (valid_email(email) and (strong_password(new_password) or simple_password(new_password))): return False
     conn = get_conn(); c = conn.cursor()
     c.execute("UPDATE users SET password_hash=? WHERE email=?", (hash_password(new_password), email.strip().lower()))
     conn.commit(); ok = c.rowcount>0; conn.close()
@@ -2656,9 +2655,60 @@ def custom_style():
         background: linear-gradient(90deg, #ffd700, #ffed4e, #ffd700) !important;
       }
       
+      /* بهبود استایل برای موبایل */
       @media (max-width: 768px){
-        .stButton>button{ width:100%; }
-        .card{ padding:15px; }
+        .stButton>button{ 
+            width:100%; 
+            font-size: 14px !important;
+            padding: 10px 16px !important;
+        }
+        
+        .card{ 
+            padding:12px !important; 
+            margin: 10px 0 !important;
+        }
+        
+        /* بهبود فونت‌ها برای موبایل */
+        .card h4, .card h3, .card h2 {
+            font-size: 16px !important;
+            color: #8B3A3A !important;  /* رنگ قرمز برای عناوین */
+        }
+        
+        .card p, .card div {
+            font-size: 14px !important;
+            color: #2e2e2e !important;  /* رنگ مشکی برای متن‌ها */
+            line-height: 1.5 !important;
+        }
+        
+        /* بهبود badge ها برای موبایل */
+        .pill {
+            font-size: 12px !important;
+            padding: 6px 12px !important;
+            margin: 3px 6px !important;
+            background: #8B3A3A !important;  /* پسورد قرمز */
+            color: white !important;  /* فونت سفید */
+            border: 1px solid #C5A572 !important;
+        }
+        
+        /* بهبود input ها */
+        .stTextInput > div > input,
+        .stNumberInput > div > div > input,
+        textarea,
+        select {
+            font-size: 14px !important;
+            color: #2e2e2e !important;
+            background: #fff !important;
+        }
+        
+        /* هدرها رو قرمز کن */
+        h1, h2, h3, h4, h5, h6 {
+            color: #8B3A3A !important;
+        }
+        
+        /* متن‌های عمومی */
+        .stMarkdown, .stText {
+            color: #2e2e2e !important;
+        }
       }
     </style>
     """, unsafe_allow_html=True)
@@ -2676,12 +2726,13 @@ def signup_page():
     name = col1.text_input("👤 نام کامل")
     email = col2.text_input("📧 ایمیل")
     phone = col1.text_input("📞 شماره تماس (اختیاری)")
-    password = col2.text_input("🔒 رمز عبور (حداقل ۸ کاراکتر شامل حروف بزرگ، کوچک، عدد و کاراکتر خاص)", type="password")
+    password = col2.text_input("🔒 رمز عبور (حداقل ۶ کاراکتر)", type="password", 
+                             help="رمز عبور می‌تواند هر ترکیبی از کاراکترها با حداقل ۶ حرف باشد")
     bio = st.text_area("📝 بیوگرافی (اختیاری)", help="در مورد خودتان و زمینه فعالیت در املاک توضیح دهید")
     
     if st.button("✨ ایجاد حساب کاربری", use_container_width=True):
-        if not name or not valid_email(email) or not strong_password(password) or not valid_phone(phone):
-            st.error("لطفاً نام، ایمیل معتبر، رمز قوی (حداقل ۸ کاراکتر شامل حروف بزرگ، کوچک، عدد و کاراکتر خاص) و شماره صحیح وارد کنید.")
+        if not name or not valid_email(email) or not (strong_password(password) or simple_password(password)) or not valid_phone(phone):
+            st.error("لطفاً نام، ایمیل معتبر، رمز (حداقل ۶ کاراکتر) و شماره صحیح وارد کنید.")
         else:
             ok = register_user(name, email, password, role="public", phone=phone, bio=bio)
             if ok: 
@@ -2697,8 +2748,12 @@ def login_page():
     st.subheader("🔐 ورود به سامانه")
     st.markdown("</div>", unsafe_allow_html=True)
     
+    # اضافه کردن راهنمای پسورد ساده
+    st.info("🔓 **ورود آسان:** پسورد می‌تواند حداقل ۴ کاراکتر باشد")
+    
     email = st.text_input("📧 ایمیل")
-    password = st.text_input("🔒 رمز عبور", type="password")
+    password = st.text_input("🔒 رمز عبور", type="password", 
+                           help="پسورد می‌تواند هر ترکیبی از کاراکترها با حداقل ۴ حرف باشد")
     
     colA, colB = st.columns(2)
     if colA.button("🚪 ورود به سیستم", use_container_width=True):
@@ -2715,9 +2770,10 @@ def login_page():
     
     if st.session_state.get("show_reset"):
         st.markdown("<div class='traditional-tab'>", unsafe_allow_html=True)
-        st.info("🔐 رمز جدید را تنظیم کنید")
+        st.info("🔐 رمز جدید را تنظیم کنید (حداقل ۴ کاراکتر)")
         e = st.text_input("📧 ایمیل ثبت‌شده", key="rp_e")
-        npw = st.text_input("🔒 رمز جدید", type="password", key="rp_p")
+        npw = st.text_input("🔒 رمز جدید", type="password", key="rp_p",
+                          help="پسورد جدید می‌تواند حداقل ۴ کاراکتر باشد")
         if st.button("🔄 تغییر رمز عبور", use_container_width=True):
             if reset_password(e, npw):
                 st.success("✅ رمز تغییر کرد. وارد شوید.")
@@ -3147,3 +3203,5 @@ def show_main_application():
 
 if __name__ == "__main__":
     main()
+    
+
