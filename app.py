@@ -1,4 +1,4 @@
-# app.py — اپلیکیشن املاک و مستغلات شهرستان جرقویه (نسخه کامل + هوش مصنوعی)
+# app.py — اپلیکیشن املاک و مستغلات میرحاج (نسخه کامل + هوش مصنوعی پیشرفته)
 import streamlit as st
 import sqlite3
 import hashlib
@@ -36,7 +36,7 @@ import pytz
 # =========================
 # CONFIG / SETTINGS پیشرفته
 # =========================
-DB_NAME = "real_estate_jargouyeh.db"
+DB_NAME = "real_estate_mirhaj.db"
 ADMIN_EMAIL = "mirhaj57@gmail.com"  # تنها مدیر سیستم
 DEFAULT_LISTING_FEE = 20000  # تومان
 MAX_UPLOAD_IMAGES = 8
@@ -135,10 +135,316 @@ class RealEstateAnalytics:
         return trends
 
 # =========================
+# ADVANCED FRAUD DETECTION AI - هوش مصنوعی تشخیص تقلب
+# =========================
+class FraudDetectionAI:
+    def __init__(self):
+        self.suspicious_patterns = []
+        
+    def analyze_listing(self, property_data: Dict[str, Any], market_data: pd.DataFrame) -> Dict[str, Any]:
+        """تحلیل ملک برای تشخیص احتمالی تقلب"""
+        risk_score = 0
+        warnings = []
+        recommendations = []
+        
+        # تحلیل قیمت
+        price_analysis = self._analyze_price(property_data, market_data)
+        risk_score += price_analysis['risk_score']
+        warnings.extend(price_analysis['warnings'])
+        recommendations.extend(price_analysis['recommendations'])
+        
+        # تحلیل تصاویر
+        image_analysis = self._analyze_images(property_data)
+        risk_score += image_analysis['risk_score']
+        warnings.extend(image_analysis['warnings'])
+        
+        # تحلیل متن
+        text_analysis = self._analyze_text(property_data)
+        risk_score += text_analysis['risk_score']
+        warnings.extend(text_analysis['warnings'])
+        
+        # تحلیل موقعیت مکانی
+        location_analysis = self._analyze_location(property_data, market_data)
+        risk_score += location_analysis['risk_score']
+        warnings.extend(location_analysis['warnings'])
+        
+        return {
+            'risk_score': min(risk_score, 100),
+            'risk_level': self._get_risk_level(risk_score),
+            'warnings': warnings,
+            'recommendations': recommendations,
+            'is_suspicious': risk_score > 70
+        }
+    
+    def _analyze_price(self, property_data: Dict[str, Any], market_data: pd.DataFrame) -> Dict[str, Any]:
+        """تحلیل قیمت برای تشخیص غیرعادی بودن"""
+        risk_score = 0
+        warnings = []
+        recommendations = []
+        
+        price = property_data.get('price', 0)
+        area = property_data.get('area', 1)
+        price_per_meter = price / area if area > 0 else 0
+        
+        # محاسبه میانگین قیمت هر متر در منطقه
+        similar_properties = market_data[
+            (market_data['city'] == property_data.get('city')) &
+            (market_data['property_type'] == property_data.get('property_type'))
+        ]
+        
+        if not similar_properties.empty:
+            avg_price_per_meter = (similar_properties['price'] / similar_properties['area']).mean()
+            
+            # بررسی انحراف از میانگین
+            deviation = abs(price_per_meter - avg_price_per_meter) / avg_price_per_meter
+            
+            if deviation > 0.5:  # انحراف بیش از 50%
+                risk_score += 40
+                warnings.append(f"💰 قیمت غیرمعمول: {deviation:.0%} انحراف از میانگین بازار")
+                recommendations.append("📊 قیمت را با املاک مشابه در منطقه مقایسه کنید")
+            elif deviation > 0.3:
+                risk_score += 20
+                warnings.append(f"💰 قیمت غیرمعمول: {deviation:.0%} انحراف از میانگین بازار")
+        
+        return {
+            'risk_score': risk_score,
+            'warnings': warnings,
+            'recommendations': recommendations
+        }
+    
+    def _analyze_images(self, property_data: Dict[str, Any]) -> Dict[str, Any]:
+        """تحلیل تصاویر برای تشخیص مشکلات"""
+        risk_score = 0
+        warnings = []
+        
+        # در اینجا می‌توان تحلیل تصاویر واقعی اضافه کرد
+        # فعلاً فقط بررسی‌های اولیه
+        
+        if property_data.get('images_count', 0) == 0:
+            risk_score += 30
+            warnings.append("🖼️ ملک بدون تصویر - احتمال کاهش اعتماد")
+        
+        return {
+            'risk_score': risk_score,
+            'warnings': warnings
+        }
+    
+    def _analyze_text(self, property_data: Dict[str, Any]) -> Dict[str, Any]:
+        """تحلیل متن عنوان و توضیحات"""
+        risk_score = 0
+        warnings = []
+        
+        title = property_data.get('title', '').lower()
+        description = property_data.get('description', '').lower()
+        
+        # کلمات مشکوک
+        suspicious_words = ['فوری', 'ویژه', 'تخفیف', 'شگفت‌انگیز', 'استثنایی', 'فقط امروز']
+        found_suspicious = [word for word in suspicious_words if word in title or word in description]
+        
+        if found_suspicious:
+            risk_score += len(found_suspicious) * 5
+            warnings.append(f"⚠️ استفاده از کلمات تبلیغاتی: {', '.join(found_suspicious)}")
+        
+        # بررسی طول توضیحات
+        if len(description) < 50:
+            risk_score += 10
+            warnings.append("📝 توضیحات بسیار کوتاه - نیاز به اطلاعات بیشتر")
+        
+        return {
+            'risk_score': risk_score,
+            'warnings': warnings
+        }
+    
+    def _analyze_location(self, property_data: Dict[str, Any], market_data: pd.DataFrame) -> Dict[str, Any]:
+        """تحلیل موقعیت مکانی"""
+        risk_score = 0
+        warnings = []
+        
+        lat = property_data.get('latitude')
+        lon = property_data.get('longitude')
+        
+        # بررسی مختصات نامعتبر
+        if not lat or not lon or lat == 0 or lon == 0:
+            risk_score += 25
+            warnings.append("📍 موقعیت مکانی نامعتبر")
+        
+        return {
+            'risk_score': risk_score,
+            'warnings': warnings
+        }
+    
+    def _get_risk_level(self, score: int) -> str:
+        """تعیین سطح ریسک"""
+        if score >= 80:
+            return "🔴 خطرناک"
+        elif score >= 60:
+            return "🟠 پرریسک"
+        elif score >= 40:
+            return "🟡 متوسط"
+        elif score >= 20:
+            return "🔵 کم‌ریسک"
+        else:
+            return "🟢 امن"
+
+# =========================
+# SMART NEGOTIATION AI - هوش مصنوعی چانه‌زن
+# =========================
+class NegotiationAI:
+    def __init__(self):
+        self.market_data = None
+        self.negotiation_strategies = {}
+        
+    def analyze_negotiation_position(self, property_data: Dict[str, Any], buyer_profile: Dict[str, Any]) -> Dict[str, Any]:
+        """تحلیل موقعیت چانه‌زنی"""
+        analysis = {
+            'seller_advantage': 0,
+            'buyer_advantage': 0,
+            'recommended_offer': 0,
+            'negotiation_strategy': '',
+            'talking_points': [],
+            'risk_factors': []
+        }
+        
+        # تحلیل مزیت فروشنده
+        analysis['seller_advantage'] = self._calculate_seller_advantage(property_data)
+        
+        # تحلیل مزیت خریدار
+        analysis['buyer_advantage'] = self._calculate_buyer_advantage(property_data, buyer_profile)
+        
+        # پیشنهاد قیمت اولیه
+        analysis['recommended_offer'] = self._calculate_recommended_offer(property_data, analysis)
+        
+        # استراتژی چانه‌زنی
+        analysis['negotiation_strategy'] = self._select_negotiation_strategy(analysis)
+        
+        # نقاط گفتگو
+        analysis['talking_points'] = self._generate_talking_points(property_data, analysis)
+        
+        # عوامل ریسک
+        analysis['risk_factors'] = self._identify_risk_factors(property_data)
+        
+        return analysis
+    
+    def _calculate_seller_advantage(self, property_data: Dict[str, Any]) -> float:
+        """محاسبه مزیت فروشنده"""
+        advantage = 0
+        
+        # املاک ویژه
+        if property_data.get('featured'):
+            advantage += 20
+        
+        # موقعیت مکانی خوب
+        if property_data.get('city') in ['اصفهان', 'جرقویه']:
+            advantage += 15
+        
+        # امکانات ویژه
+        facilities = property_data.get('facilities', '')
+        if 'آسانسور' in facilities:
+            advantage += 10
+        if 'پارکینگ' in facilities:
+            advantage += 10
+        if 'استخر' in facilities:
+            advantage += 15
+        
+        # سن کم بنا
+        building_age = property_data.get('building_age', 0)
+        if building_age <= 5:
+            advantage += 20
+        elif building_age <= 10:
+            advantage += 10
+        
+        return min(advantage, 100)
+    
+    def _calculate_buyer_advantage(self, property_data: Dict[str, Any], buyer_profile: Dict[str, Any]) -> float:
+        """محاسبه مزیت خریدار"""
+        advantage = 0
+        
+        # مدت زمان فروش
+        # اگر ملک مدت زیادی در بازار بوده
+        advantage += 10
+        
+        # فصل فروش
+        current_month = datetime.now().month
+        if current_month in [11, 12, 1]:  # ماه‌های کم‌رونق
+            advantage += 15
+        
+        # موقعیت خریدار
+        if buyer_profile.get('cash_offer'):
+            advantage += 25
+        if buyer_profile.get('first_time_buyer'):
+            advantage += 10
+        
+        return min(advantage, 100)
+    
+    def _calculate_recommended_offer(self, property_data: Dict[str, Any], analysis: Dict[str, Any]) -> int:
+        """محاسبه پیشنهاد قیمت اولیه"""
+        current_price = property_data.get('price', 0)
+        seller_advantage = analysis['seller_advantage']
+        buyer_advantage = analysis['buyer_advantage']
+        
+        # محاسبه درصد تخفیف پیشنهادی
+        base_discount = 0.05  # 5% پایه
+        
+        # تعدیل بر اساس مزایا
+        advantage_ratio = buyer_advantage / max(seller_advantage, 1)
+        additional_discount = min(advantage_ratio * 0.1, 0.2)  # حداکثر 20% تخفیف اضافه
+        
+        total_discount = base_discount + additional_discount
+        recommended_price = current_price * (1 - total_discount)
+        
+        return int(recommended_price)
+    
+    def _select_negotiation_strategy(self, analysis: Dict[str, Any]) -> str:
+        """انتخاب استراتژی چانه‌زنی"""
+        seller_advantage = analysis['seller_advantage']
+        buyer_advantage = analysis['buyer_advantage']
+        
+        if seller_advantage > buyer_advantage + 20:
+            return "🔴 محتاطانه - فروشنده موقعیت قوی دارد"
+        elif buyer_advantage > seller_advantage + 20:
+            return "🟢 تهاجمی - خریدار موقعیت قوی دارد"
+        else:
+            return "🟡 متعادل - موقعیت برابر"
+    
+    def _generate_talking_points(self, property_data: Dict[str, Any], analysis: Dict[str, Any]) -> List[str]:
+        """ایجاد نقاط گفتگو برای چانه‌زنی"""
+        points = []
+        
+        # نقاط ضعف ملک
+        building_age = property_data.get('building_age', 0)
+        if building_age > 15:
+            points.append(f"🏚️ سن بالای ملک ({building_age} سال)")
+        
+        facilities = property_data.get('facilities', '')
+        if 'آسانسور' not in facilities:
+            points.append("📶 عدم وجود آسانسور")
+        
+        if 'پارکینگ' not in facilities:
+            points.append("🚗 عدم وجود پارکینگ")
+        
+        # شرایط بازار
+        points.append("📊 شرایط کنونی بازار املاک")
+        points.append("💵 امکان پرداخت نقدی")
+        
+        return points
+    
+    def _identify_risk_factors(self, property_data: Dict[str, Any]) -> List[str]:
+        """شناسایی عوامل ریسک"""
+        risks = []
+        
+        # بررسی مالکیت
+        if not property_data.get('owner_verified'):
+            risks.append("👤 مالکیت تأیید نشده")
+        
+        # بررسی مدارک
+        risks.append("📄 نیاز به بررسی مدارک ملک")
+        
+        return risks
+
+# =========================
 # AI PROPERTY RECOMMENDER - سیستم پیشنهاد هوشمند
 # =========================
 class PropertyRecommender:
-    """کلاس PropertyRecommender که در کد فراخوانی شده بود"""
     def __init__(self):
         self.vectorizer = TfidfVectorizer(
             max_features=1000,
@@ -148,11 +454,8 @@ class PropertyRecommender:
         self.similarity_threshold = 0.3
         
     def update_recommendations_for_user(self, user_email: str):
-        """به‌روزرسانی پیشنهادات برای کاربر - تابعی که در کد فراخوانی شده بود"""
         try:
             conn = get_conn()
-            
-            # دریافت علاقه‌مندی‌های کاربر
             c = conn.cursor()
             c.execute("""
                 SELECT p.* FROM favorites f
@@ -165,20 +468,15 @@ class PropertyRecommender:
                 conn.close()
                 return
                 
-            # دریافت تمام املاک فعال
-            properties_df = pd.read_sql("""
-                SELECT * FROM properties WHERE status='published'
-            """, conn)
+            properties_df = pd.read_sql("SELECT * FROM properties WHERE status='published'", conn)
             
             if properties_df.empty:
                 conn.close()
                 return
                 
-            # آموزش مدل
             features = self._extract_features(properties_df)
             feature_matrix = self.vectorizer.fit_transform(features)
             
-            # محاسبه شباهت
             fav_indices = []
             for fav in user_favorites:
                 for i, prop_id in enumerate(properties_df['id']):
@@ -194,7 +492,6 @@ class PropertyRecommender:
             mean_fav_vector = fav_vectors.mean(axis=0)
             similarities = cosine_similarity(mean_fav_vector, feature_matrix).flatten()
             
-            # ذخیره پیشنهادات در دیتابیس
             c.execute("DELETE FROM ai_recommendations WHERE user_email=?", (user_email,))
             
             top_indices = similarities.argsort()[-10:][::-1]
@@ -213,7 +510,6 @@ class PropertyRecommender:
             print(f"Error updating recommendations: {e}")
 
     def _extract_features(self, df: pd.DataFrame) -> List[str]:
-        """استخراج ویژگی‌ها از داده‌های ملک"""
         features = []
         for _, row in df.iterrows():
             feature_text = (
@@ -227,193 +523,16 @@ class PropertyRecommender:
         return features
 
     def _generate_reason(self, property_data, user_favorites) -> str:
-        """تولید دلیل پیشنهاد"""
         reasons = []
-        
-        # بررسی تطابق نوع ملک
-        fav_types = [fav[4] for fav in user_favorites]  # property_type
+        fav_types = [fav[4] for fav in user_favorites]
         if property_data['property_type'] in fav_types:
             reasons.append(f"نوع {property_data['property_type']} مشابه علاقه‌مندی‌های شما")
         
-        # بررسی تطابق شهر
-        fav_cities = [fav[3] for fav in user_favorites]  # city
+        fav_cities = [fav[3] for fav in user_favorites]
         if property_data['city'] in fav_cities:
             reasons.append(f"موقعیت در {property_data['city']} منطبق بر ترجیحات شما")
         
         return " - ".join(reasons) if reasons else "پیشنهاد مبتنی بر تحلیل علاقه‌مندی‌های شما"
-
-class AdvancedPropertyRecommender:
-    def __init__(self):
-        self.vectorizer = TfidfVectorizer(
-            max_features=1000,
-            stop_words=None,
-            ngram_range=(1, 2)
-        )
-        self.similarity_threshold = 0.3
-        
-    def enhanced_property_features(self, df: pd.DataFrame) -> List[str]:
-        """استخراج ویژگی‌های پیشرفته از ملک‌ها"""
-        features = []
-        for _, row in df.iterrows():
-            feature_text = (
-                f"{row['property_type']} {row['city']} "
-                f"{row.get('facilities', '')} {row.get('description', '')} "
-                f"{'آسانسور' if 'آسانسور' in str(row.get('facilities', '')) else ''} "
-                f"{'پارکینグ' if 'پارکینگ' in str(row.get('facilities', '')) else ''} "
-                f"{'استخر' if 'استخر' in str(row.get('facilities', '')) else ''}"
-            )
-            features.append(feature_text)
-        return features
-    
-    def train_advanced_model(self, properties_df: pd.DataFrame, user_behavior: pd.DataFrame = None):
-        """آموزش مدل پیشرفته با درنظرگیری رفتار کاربران"""
-        features = self.enhanced_property_features(properties_df)
-        self.feature_matrix = self.vectorizer.fit_transform(features)
-        self.property_ids = properties_df['id'].tolist()
-        self.properties_data = properties_df
-        
-        # اضافه کردن تحلیل رفتار کاربران
-        if user_behavior is not None and not user_behavior.empty:
-            self.user_preferences = self._analyze_user_behavior(user_behavior)
-        else:
-            self.user_preferences = {}
-    
-    def _analyze_user_behavior(self, user_behavior: pd.DataFrame) -> Dict[str, Any]:
-        """تحلیل رفتار کاربران برای شخصی‌سازی بهتر"""
-        preferences = {}
-        
-        for user_email, group in user_behavior.groupby('user_email'):
-            user_prefs = {
-                'preferred_types': group['property_type'].value_counts().head(3).index.tolist(),
-                'preferred_cities': group['city'].value_counts().head(3).index.tolist(),
-                'avg_price_range': (group['price'].min(), group['price'].max()),
-                'preferred_amenities': self._extract_common_amenities(group)
-            }
-            preferences[user_email] = user_prefs
-            
-        return preferences
-    
-    def _extract_common_amenities(self, user_properties: pd.DataFrame) -> List[str]:
-        """استخراج امکانات مورد علاقه کاربر"""
-        all_amenities = []
-        for facilities in user_properties['facilities'].dropna():
-            if isinstance(facilities, str):
-                all_amenities.extend([amenity.strip() for amenity in facilities.split(',')])
-        
-        from collections import Counter
-        common_amenities = [amenity for amenity, count in Counter(all_amenities).most_common(5) if count > 1]
-        return common_amenities
-    
-    def get_personalized_recommendations(self, user_email: str, top_n: int = 5) -> List[Tuple[int, float, str]]:
-        """دریافت پیشنهادات شخصی‌سازی شده"""
-        if not hasattr(self, 'feature_matrix'):
-            return []
-            
-        user_favorites = self._get_user_favorites(user_email)
-        
-        if not user_favorites:
-            return self._get_popular_recommendations(top_n)
-        
-        # محاسبه شباهت بر اساس علاقه‌مندی‌های کاربر
-        fav_indices = [i for i, pid in enumerate(self.property_ids) if pid in user_favorites]
-        
-        if not fav_indices:
-            return self._get_popular_recommendations(top_n)
-            
-        fav_vectors = self.feature_matrix[fav_indices]
-        mean_fav_vector = fav_vectors.mean(axis=0)
-        
-        similarities = cosine_similarity(mean_fav_vector, self.feature_matrix).flatten()
-        
-        # اعمال فیلترهای شخصی‌سازی شده
-        if user_email in self.user_preferences:
-            similarities = self._apply_user_preferences(user_email, similarities)
-        
-        # حذف ملک‌های مورد علاقه از نتایج
-        for i in fav_indices:
-            similarities[i] = -1
-            
-        # انتخاب بهترین پیشنهادات
-        top_indices = similarities.argsort()[-top_n:][::-1]
-        recommendations = []
-        
-        for i in top_indices:
-            if similarities[i] > self.similarity_threshold:
-                reason = self._generate_recommendation_reason(user_email, i, similarities[i])
-                recommendations.append((self.property_ids[i], similarities[i], reason))
-        
-        return recommendations
-    
-    def _get_user_favorites(self, user_email: str) -> List[int]:
-        """دریافت علاقه‌مندی‌های کاربر از دیتابیس"""
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("SELECT property_id FROM favorites WHERE user_email=?", (user_email,))
-        favorites = [row[0] for row in c.fetchall()]
-        conn.close()
-        return favorites
-    
-    def _get_popular_recommendations(self, top_n: int) -> List[Tuple[int, float, str]]:
-        """پیشنهاد املاک محبوب در صورت عدم وجود علاقه‌مندی"""
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("""
-            SELECT p.id, COUNT(f.id) as fav_count 
-            FROM properties p 
-            LEFT JOIN favorites f ON p.id = f.property_id 
-            WHERE p.status='published' 
-            GROUP BY p.id 
-            ORDER BY fav_count DESC, p.views DESC 
-            LIMIT ?
-        """, (top_n,))
-        popular = [(row[0], 0.5, "ملک محبوب در سیستم") for row in c.fetchall()]
-        conn.close()
-        return popular
-    
-    def _apply_user_preferences(self, user_email: str, similarities: np.ndarray) -> np.ndarray:
-        """اعمال ترجیحات کاربر بر روی امتیازهای شباهت"""
-        prefs = self.user_preferences[user_email]
-        
-        for i, prop_id in enumerate(self.property_ids):
-            prop_data = self.properties_data[self.properties_data['id'] == prop_id].iloc[0]
-            
-            # تطابق نوع ملک
-            if prop_data['property_type'] in prefs['preferred_types']:
-                similarities[i] *= 1.2
-                
-            # تطابق شهر
-            if prop_data['city'] in prefs['preferred_cities']:
-                similarities[i] *= 1.15
-                
-            # تطابق محدوده قیمت
-            min_price, max_price = prefs['avg_price_range']
-            if min_price <= prop_data['price'] <= max_price:
-                similarities[i] *= 1.1
-        
-        return similarities
-    
-    def _generate_recommendation_reason(self, user_email: str, prop_index: int, similarity: float) -> str:
-        """تولید دلیل پیشنهاد برای کاربر"""
-        prop_data = self.properties_data.iloc[prop_index]
-        reasons = []
-        
-        if user_email in self.user_preferences:
-            prefs = self.user_preferences[user_email]
-            
-            if prop_data['property_type'] in prefs['preferred_types']:
-                reasons.append(f"نوع {prop_data['property_type']} مشابه انتخاب‌های قبلی شما")
-                
-            if prop_data['city'] in prefs['preferred_cities']:
-                reasons.append(f"موقعیت در {prop_data['city']} منطبق بر ترجیحات شما")
-        
-        if similarity > 0.7:
-            reasons.append("شباهت بسیار بالا با علاقه‌مندی‌های شما")
-        elif similarity > 0.5:
-            reasons.append("شباهت بالا با سلیقه شما")
-        else:
-            reasons.append("پیشنهاد مبتنی بر تحلیل بازار")
-        
-        return " - ".join(reasons) if reasons else "پیشنهاد هوشمند سیستم"
 
 # =========================
 # SMART PRICE ADVISOR - مشاور قیمت هوشمند
@@ -423,7 +542,6 @@ class SmartPriceAdvisor:
         self.analytics = RealEstateAnalytics()
         
     def analyze_property_value(self, property_data: Dict[str, Any], market_data: pd.DataFrame) -> Dict[str, Any]:
-        """آنالیز ارزش ملک و ارائه توصیه قیمت"""
         self.analytics.train_price_model(market_data)
         
         predicted_price = self.analytics.predict_price(property_data)
@@ -437,14 +555,12 @@ class SmartPriceAdvisor:
             'market_analysis': self.analytics.get_market_trends(market_data)
         }
         
-        # تولید توصیه
         analysis['recommendation'] = self._generate_price_recommendation(analysis)
         analysis['confidence_score'] = self._calculate_confidence_score(market_data)
         
         return analysis
     
     def _generate_price_recommendation(self, analysis: Dict[str, Any]) -> str:
-        """تولید توصیه قیمت بر اساس تحلیل"""
         ratio = analysis['price_ratio']
         diff = analysis['price_difference']
         
@@ -460,7 +576,6 @@ class SmartPriceAdvisor:
             return f"⚠️ قیمت بالا - {abs(diff):,} تومان بیشتر از ارزش بازار"
     
     def _calculate_confidence_score(self, market_data: pd.DataFrame) -> float:
-        """محاسبه امتیاز اطمینان از تحلیل"""
         if len(market_data) < 10:
             return 0.3
         elif len(market_data) < 50:
@@ -472,33 +587,24 @@ class SmartPriceAdvisor:
 # INITIALIZE AI SYSTEMS - راه‌اندازی سیستم‌های هوشمند
 # =========================
 market_analytics = RealEstateAnalytics()
-property_recommender = AdvancedPropertyRecommender()
+fraud_detector = FraudDetectionAI()
+negotiation_ai = NegotiationAI()
 price_advisor = SmartPriceAdvisor()
-simple_property_recommender = PropertyRecommender()  # اضافه کردن PropertyRecommender
+property_recommender = PropertyRecommender()
 
 def initialize_ai_systems():
-    """راه‌اندازی اولیه سیستم‌های هوشمند"""
     try:
         conn = get_conn()
-        
-        # بارگذاری داده‌های بازار
-        properties_df = pd.read_sql("""
-            SELECT * FROM properties WHERE status='published'
-        """, conn)
-        
-        # بارگذاری رفتار کاربران
+        properties_df = pd.read_sql("SELECT * FROM properties WHERE status='published'", conn)
         user_behavior_df = pd.read_sql("""
             SELECT f.user_email, p.property_type, p.city, p.price, p.facilities
             FROM favorites f
             JOIN properties p ON f.property_id = p.id
         """, conn)
-        
         conn.close()
         
         if not properties_df.empty:
-            # آموزش سیستم‌های هوشمند
             market_analytics.train_price_model(properties_df)
-            property_recommender.train_advanced_model(properties_df, user_behavior_df)
             
         return True
     except Exception as e:
@@ -782,16 +888,66 @@ def migrate_db():
         c.execute("""
             INSERT INTO users (name, email, password_hash, role, verified, created_at) 
             VALUES (?, ?, ?, 'admin', 1, ?)
-        """, ("مدیر سیستم", ADMIN_EMAIL, admin_password_hash, now_iso()))
+        """, ("مدیر سیستم میرحاج", ADMIN_EMAIL, admin_password_hash, now_iso()))
 
     conn.commit(); conn.close()
 
 # =========================
-# AUTH پیشرفته
+# AUTH پیشرفته - با سیستم هش امن
 # =========================
 def hash_password(password: str) -> str:
+    """هش کردن امن پسورد با salt تصادفی"""
     salt = os.urandom(32)
-    return hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000).hex()
+    pwd_hash = hashlib.pbkdf2_hmac(
+        'sha256',
+        password.encode('utf-8'),
+        salt,
+        100000
+    )
+    return base64.b64encode(salt + pwd_hash).decode('utf-8')
+
+def verify_password(password: str, hashed: str) -> bool:
+    """بررسی تطابق پسورد با هش ذخیره شده"""
+    try:
+        decoded = base64.b64decode(hashed.encode('utf-8'))
+        salt = decoded[:32]
+        stored_hash = decoded[32:]
+        
+        new_hash = hashlib.pbkdf2_hmac(
+            'sha256',
+            password.encode('utf-8'),
+            salt,
+            100000
+        )
+        return new_hash == stored_hash
+    except Exception:
+        return False
+
+def strong_password(pw: str) -> bool:
+    """بررسی قدرت پسورد"""
+    if not pw or len(pw) < 8:
+        return False
+    has_letter = any(c.isalpha() for c in pw)
+    has_digit = any(c.isdigit() for c in pw)
+    return has_letter and has_digit
+
+def simple_password(pw: str) -> bool:
+    """پسورد ساده برای توسعه"""
+    return len(pw) >= 4
+
+def check_login_attempts(email: str) -> bool:
+    """بررسی تعداد تلاش‌های ناموفق"""
+    key = f"login_attempts_{email}"
+    attempts = st.session_state.get(key, 0)
+    if attempts >= 5:
+        st.error("🔒 حساب شما به دلیل تلاش‌های متعدد قفل شده است. 15 دقیقه دیگر تلاش کنید.")
+        return False
+    return True
+
+def increment_login_attempts(email: str):
+    """افزایش شمارنده تلاش‌های ناموفق"""
+    key = f"login_attempts_{email}"
+    st.session_state[key] = st.session_state.get(key, 0) + 1
 
 def valid_email(email:str)->bool:
     return bool(re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", email or ""))
@@ -799,13 +955,6 @@ def valid_email(email:str)->bool:
 def valid_phone(phone:str)->bool:
     if not phone: return True
     return bool(re.match(r"^(\+98|0)?9\d{9}$", phone.replace(" ", "")))
-
-def strong_password(pw:str)->bool:
-    if not pw or len(pw) < 6: return False  # از ۸ به ۶ کاهش دادم
-    return True
-
-def simple_password(pw:str)->bool:
-    return len(pw) >= 4  # پسورد ۴ کاراکتری هم قبول کن
 
 def register_user(name: str, email: str, password: str, role="public", phone=None, bio=None) -> bool:
     if not (name and valid_email(email) and (strong_password(password) or simple_password(password)) and valid_phone(phone or "")):
@@ -822,32 +971,39 @@ def register_user(name: str, email: str, password: str, role="public", phone=Non
         return False
 
 def login_user(email: str, password: str) -> Optional[Dict[str,Any]]:
+    if not check_login_attempts(email):
+        return None
+        
     conn = get_conn(); c = conn.cursor()
     c.execute("SELECT name, role, phone, password_hash, email, bio, verified FROM users WHERE email=?", (email.strip().lower(),))
     row = c.fetchone(); conn.close()
     
-    if not row: return None
+    if not row: 
+        increment_login_attempts(email)
+        return None
+        
     name, role, phone, ph, em, bio, verified = row
     
-    # بررسی دسترسی مدیر
     if em == ADMIN_EMAIL and role != 'admin':
-        # بروزرسانی نقش به مدیر
         conn = get_conn(); c = conn.cursor()
         c.execute("UPDATE users SET role='admin' WHERE email=?", (ADMIN_EMAIL,))
         conn.commit(); conn.close()
         role = 'admin'
     
     if verify_password(password, ph):
+        key = f"login_attempts_{email}"
+        if key in st.session_state:
+            del st.session_state[key]
+            
         conn = get_conn(); c = conn.cursor()
         c.execute("UPDATE users SET last_login=? WHERE email=?", (now_iso(), em))
         conn.commit(); conn.close()
         
         track_user_activity(em, "login", f"User {name} logged in successfully")
         return {"email": em, "name": name, "role": role, "phone": phone, "bio": bio, "verified": verified}
+    
+    increment_login_attempts(email)
     return None
-
-def verify_password(password: str, hashed: str) -> bool:
-    return hash_password(password) == hashed
 
 def reset_password(email: str, new_password: str) -> bool:
     if not (valid_email(email) and (strong_password(new_password) or simple_password(new_password))): return False
@@ -914,7 +1070,7 @@ def seo_meta(base_url:str, title:str, description:str, path:str="", image_url:st
     url = base_url.rstrip("/") + (path if path.startswith("/") else f"/{path}")
     tags = f"""
     <meta name="description" content="{description}"/>
-    <meta name="keywords" content="{keywords or 'املاک, جرقویه, خرید ملک, فروش ملک, اجاره, آپارتمان, ویلا, مغازه'}"/>
+    <meta name="keywords" content="{keywords or 'املاک, میرحاج, خرید ملک, فروش ملک, اجاره, آپارتمان, ویلا, مغازه'}"/>
     <link rel="canonical" href="{url}"/>
     <meta property="og:title" content="{title}"/>
     <meta property="og:description" content="{description}"/>
@@ -1575,7 +1731,7 @@ def get_smart_recommendations(user_email: str, limit: int = 5) -> pd.DataFrame:
 
 def update_recommendations_for_user(user_email: str):
     """تابع به‌روزرسانی پیشنهادات برای کاربر - از PropertyRecommender استفاده می‌کند"""
-    simple_property_recommender.update_recommendations_for_user(user_email)
+    property_recommender.update_recommendations_for_user(user_email)
 
 def update_recommendations_for_new_property(property_id: int):
     conn = get_conn()
@@ -1610,7 +1766,7 @@ def update_recommendations_for_new_property(property_id: int):
 # =========================
 def generate_share_links(property_id: int, base_url: str) -> Dict[str, str]:
     url = f"{base_url.rstrip('/')}/?pg=view&pid={property_id}"
-    title = "ملک پیشنهادی در سامانه املاک جرقویه"
+    title = "ملک پیشنهادی در سامانه املاک میرحاج"
     
     return {
         "whatsapp": f"https://wa.me/?text={title}: {url}",
@@ -1628,7 +1784,7 @@ def generate_embed_code(property_id: int, base_url: str, width: int = 300, heigh
     
     return f"""
     <iframe src="{embed_url}" width="{width}" height="{height}" frameborder="0" style="border:1px solid #ddd;">
-        <a href="{url}">مشاهده ملک در سامانه املاک جرقویه</a>
+        <a href="{url}">مشاهده ملک در سامانه املاک میرحاج</a>
     </iframe>
     """
 
@@ -1988,12 +2144,105 @@ def notify_admins(message: str, notification_type: str = "info"):
     conn.close()
 
 # =========================
-# AI-ENHANCED UI COMPONENTS - کامپوننت‌های هوشمند UI
+# UI COMPONENTS - کامپوننت‌های جدید برای AI
 # =========================
+def show_fraud_analysis(property_data: Dict[str, Any]):
+    """نمایش تحلیل تقلب برای یک ملک"""
+    st.markdown("<div class='iranian-border'>", unsafe_allow_html=True)
+    st.markdown("### 🔍 تحلیل امنیتی ملک")
+    
+    try:
+        conn = get_conn()
+        market_df = pd.read_sql("SELECT * FROM properties WHERE status='published'", conn)
+        conn.close()
+        
+        if market_df.empty:
+            st.info("📊 داده کافی برای تحلیل امنیتی موجود نیست")
+            return
+        
+        analysis = fraud_detector.analyze_listing(property_data, market_df)
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("🎯 امتیاز ریسک", f"{analysis['risk_score']}/100")
+        col2.metric("📊 سطح ریسک", analysis['risk_level'])
+        col3.metric("⚠️ وضعیت", "مشکوک" if analysis['is_suspicious'] else "عادی")
+        
+        if analysis['warnings']:
+            st.markdown("#### ⚠️ هشدارها")
+            for warning in analysis['warnings']:
+                st.error(warning)
+        
+        if analysis['recommendations']:
+            st.markdown("#### 💡 توصیه‌ها")
+            for recommendation in analysis['recommendations']:
+                st.info(recommendation)
+                
+        if analysis['risk_score'] > 70:
+            st.warning("🚨 این ملک دارای ریسک بالایی است. لطفاً با دقت بیشتری بررسی کنید.")
+        elif analysis['risk_score'] > 40:
+            st.info("ℹ️ این ملک نیاز به بررسی بیشتر دارد.")
+        else:
+            st.success("✅ این ملک از نظر امنیتی قابل قبول است.")
+            
+    except Exception as e:
+        st.error(f"❌ خطا در تحلیل امنیتی: {e}")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def show_negotiation_assistant(property_data: Dict[str, Any], user: Dict[str, Any]):
+    """نمایش دستیار چانه‌زنی"""
+    st.markdown("<div class='iranian-border'>", unsafe_allow_html=True)
+    st.markdown("### 💬 دستیار هوشمند چانه‌زنی")
+    
+    # پروفایل خریدار
+    buyer_profile = {
+        'cash_offer': st.checkbox("💵 پیشنهاد نقدی دارم", help="در صورت پرداخت نقدی، موقعیت چانه‌زنی بهتری دارید"),
+        'first_time_buyer': st.checkbox("🎯 خرید اول", help="اگر اولین خرید شماست، ممکن است امتیازات ویژه‌ای داشته باشید"),
+        'urgent_purchase': st.checkbox("⏰ خرید فوری", help="در صورت فوریت، ممکن است موقعیت چانه‌زنی ضعیف‌تری داشته باشید")
+    }
+    
+    if st.button("🔄 تحلیل موقعیت چانه‌زنی", use_container_width=True):
+        with st.spinner("در حال تحلیل موقعیت چانه‌زنی..."):
+            try:
+                analysis = negotiation_ai.analyze_negotiation_position(property_data, buyer_profile)
+                
+                st.markdown("#### 📊 تحلیل موقعیت")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("🎯 مزیت فروشنده", f"{analysis['seller_advantage']}%")
+                col2.metric("🎯 مزیت خریدار", f"{analysis['buyer_advantage']}%")
+                col3.metric("💰 پیشنهاد اولیه", f"{analysis['recommended_offer']:,} تومان")
+                
+                st.markdown(f"#### 🎯 استراتژی پیشنهادی: {analysis['negotiation_strategy']}")
+                
+                st.markdown("#### 💡 نقاط گفتگو")
+                for point in analysis['talking_points']:
+                    st.write(f"• {point}")
+                
+                st.markdown("#### ⚠️ عوامل ریسک")
+                for risk in analysis['risk_factors']:
+                    st.error(f"• {risk}")
+                
+                # نکات طلایی چانه‌زنی
+                st.markdown("#### 🌟 نکات طلایی چانه‌زنی")
+                tips = [
+                    "💎 همیشه با احترام چانه‌زنی کنید",
+                    "⏳ عجله نکنید - زمان می‌تواند به نفع شما باشد",
+                    "📊 قیمت‌های مشابه در منطقه را بررسی کنید",
+                    "💬 روی نقاط ضعف ملک تمرکز کنید",
+                    "🤝 دنبال win-win باشید"
+                ]
+                for tip in tips:
+                    st.success(tip)
+                    
+            except Exception as e:
+                st.error(f"❌ خطا در تحلیل چانه‌زنی: {e}")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
 def show_ai_market_analysis():
     """نمایش تحلیل هوشمند بازار"""
     st.markdown("<div class='iranian-border'>", unsafe_allow_html=True)
-    st.markdown("### 📊 تحلیل هوشمند بازار املاک")
+    st.markdown("### 📊 تحلیل هوشمند بازار املاک میرحاج")
     
     try:
         conn = get_conn()
@@ -2072,27 +2321,16 @@ def show_ai_recommendations(user_email: str):
     st.markdown("### 🧠 پیشنهادات هوشمند برای شما")
     
     try:
-        recommendations = property_recommender.get_personalized_recommendations(user_email, 4)
+        recommendations = get_smart_recommendations(user_email, 4)
         
-        if not recommendations:
-            st.info("🤔 برای دریافت پیشنهادات شخصی‌سازی شده، چند ملک را به علاقه‌مندی‌ها اضافه کنید")
-            return
-        
-        for prop_id, score, reason in recommendations:
-            conn = get_conn()
-            c = conn.cursor()
-            c.execute("SELECT * FROM properties WHERE id=?", (prop_id,))
-            row = c.fetchone()
-            conn.close()
-            
-            if row:
-                cols = [d[0] for d in c.description]
-                prop_data = dict(zip(cols, row))
-                
-                st.markdown(f"**🎯 دلیل پیشنهاد:** {reason}")
-                st.markdown(f"**⭐ امتیاز تطابق:** {score:.0%}")
-                property_card(pd.Series(prop_data), st.session_state.get("user"))
+        if not recommendations.empty:
+            for _, row in recommendations.iterrows():
+                st.markdown(f"**🎯 دلیل پیشنهاد:** {row.get('reason', 'پیشنهاد مبتنی بر تحلیل علاقه‌مندی‌های شما')}")
+                st.markdown(f"**⭐ امتیاز تطابق:** {row.get('score', 0):.0%}")
+                property_card(row, st.session_state.get("user"))
                 st.markdown("---")
+        else:
+            st.info("🤔 برای دریافت پیشنهادات شخصی‌سازی شده، چند ملک را به علاقه‌مندی‌ها اضافه کنید")
                 
     except Exception as e:
         st.error(f"❌ خطا در دریافت پیشنهادات: {e}")
@@ -2109,7 +2347,7 @@ def admin_panel(user: Dict[str, Any]):
         return
     
     st.markdown("<div class='traditional-header'>", unsafe_allow_html=True)
-    st.subheader("👑 پنل مدیر سیستم - نسخه پیشرفته")
+    st.subheader("👑 پنل مدیر سیستم میرحاج - نسخه پیشرفته")
     st.markdown("</div>", unsafe_allow_html=True)
 
     # تب‌های پیشرفته مدیریت
@@ -2289,21 +2527,21 @@ def show_system_settings():
 def public_panel(user: Dict[str, Any]):
     """پنل عمومی با قابلیت‌های هوشمند"""
     st.markdown("<div class='traditional-header'>", unsafe_allow_html=True)
-    st.subheader(f"🌺 خوش آمدی {user['name']}")
+    st.subheader(f"🌺 خوش آمدی {user['name']} - املاک میرحاج")
     
     # نمایش وضعیت ویژه برای مدیر
     if user["email"] == ADMIN_EMAIL:
-        st.markdown("<span class='badge-premium'>⭐ مدیر سیستم</span>", unsafe_allow_html=True)
+        st.markdown("<span class='badge-premium'>⭐ مدیر سیستم میرحاج</span>", unsafe_allow_html=True)
     elif user.get('verified'):
         st.markdown("<span class='badge-verified'>✅ حساب تأیید شده</span>", unsafe_allow_html=True)
     
     st.markdown("</div>", unsafe_allow_html=True)
 
     # تب‌های پیشرفته
-    tab1, tab2, tab3, tab4 = st.tabs(["🏠 خانه", "📊 تحلیل بازار", "🤖 پیشنهادات", "👤 پروفایل"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏠 خانه", "📊 تحلیل بازار", "🤖 پیشنهادات", "🔍 تحلیل امنیتی", "👤 پروفایل"])
 
     with tab1:
-        show_main_dashboard(user)
+        show_main_dashboard_enhanced(user)
 
     with tab2:
         show_ai_market_analysis()
@@ -2312,11 +2550,13 @@ def public_panel(user: Dict[str, Any]):
         show_ai_recommendations(user["email"])
 
     with tab4:
+        show_security_dashboard(user)
+
+    with tab5:
         show_user_profile(user)
 
-def show_main_dashboard(user: Dict[str, Any]):
-    """نمایش داشبورد اصلی"""
-    # اطلاع‌رسانی‌ها
+def show_main_dashboard_enhanced(user: Dict[str, Any]):
+    """نمایش داشبورد اصلی پیشرفته"""
     notification_count = get_unread_notifications_count(user["email"])
     unread_messages = get_unread_message_count(user["email"])
     
@@ -2332,23 +2572,68 @@ def show_main_dashboard(user: Dict[str, Any]):
 
     # جستجو و فیلترها
     st.markdown("<div class='iranian-border'>", unsafe_allow_html=True)
-    st.markdown("### 🔍 جستجوی هوشمند املاک")
+    st.markdown("### 🔍 جستجوی هوشمند املاک میرحاج")
     filt = property_filters()
     df = list_properties_df_cached(json.dumps(filt, ensure_ascii=False))
     
-    # نمایش نقشه
     show_map(df)
 
-    # نمایش نتایج
     st.markdown("### 📋 نتایج جستجو")
     df_page = paginator(df, page_size=8, key="pg_results")
     for _, row in df_page.iterrows():
-        property_card(row, user)
-        
-        # تحلیل قیمت برای هر ملک
-        if st.session_state.get("user"):
-            with st.expander(f"💡 تحلیل قیمت برای {row['title']}"):
-                show_smart_price_analysis(dict(row))
+        enhanced_property_card(row, user)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def show_security_dashboard(user: Dict[str, Any]):
+    """نمایش داشبورد امنیتی"""
+    st.markdown("<div class='iranian-border'>", unsafe_allow_html=True)
+    st.markdown("### 🔍 داشبورد تحلیل امنیتی املاک میرحاج")
+    
+    conn = get_conn()
+    properties_df = pd.read_sql("SELECT * FROM properties WHERE status='published'", conn)
+    conn.close()
+    
+    if properties_df.empty:
+        st.info("ℹ️ هیچ ملک فعالی برای تحلیل وجود ندارد")
+        return
+    
+    # تحلیل کلی امنیت
+    st.markdown("#### 📊 تحلیل امنیتی کلی بازار")
+    
+    risk_scores = []
+    for _, prop in properties_df.iterrows():
+        analysis = fraud_detector.analyze_listing(dict(prop), properties_df)
+        risk_scores.append(analysis['risk_score'])
+    
+    avg_risk = sum(risk_scores) / len(risk_scores) if risk_scores else 0
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("📈 میانگین ریسک بازار", f"{avg_risk:.1f}/100")
+    col2.metric("🏠 تعداد املاک تحلیل شده", len(properties_df))
+    col3.metric("⚠️ املاک پرریسک", f"{sum(1 for score in risk_scores if score > 70)} مورد")
+    
+    # نمودار توزیع ریسک
+    fig_risk = px.histogram(x=risk_scores, title='توزیع امتیازات ریسک املاک',
+                          labels={'x': 'امتیاز ریسک', 'y': 'تعداد املاک'})
+    st.plotly_chart(fig_risk, use_container_width=True)
+    
+    # املاک پرریسک
+    st.markdown("#### 🚨 املاک با ریسک بالا")
+    high_risk_properties = []
+    for _, prop in properties_df.iterrows():
+        analysis = fraud_detector.analyze_listing(dict(prop), properties_df)
+        if analysis['risk_score'] > 70:
+            high_risk_properties.append((prop, analysis))
+    
+    if high_risk_properties:
+        for prop, analysis in high_risk_properties[:5]:  # نمایش 5 مورد اول
+            st.warning(f"**{prop['title']}** - امتیاز ریسک: {analysis['risk_score']} - {analysis['risk_level']}")
+            for warning in analysis['warnings'][:2]:  # نمایش 2 هشدار اول
+                st.error(f"• {warning}")
+            st.markdown("---")
+    else:
+        st.success("✅ هیچ ملک پرریسکی یافت نشد")
     
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -2719,7 +3004,7 @@ def custom_style():
 def signup_page():
     st.markdown("<div class='iranian-border'>", unsafe_allow_html=True)
     st.markdown("<div class='persian-pattern' style='text-align: center;'>", unsafe_allow_html=True)
-    st.subheader("📝 ثبت‌نام در سامانه املاک شهرستان جرقویه")
+    st.subheader("📝 ثبت‌نام در سامانه املاک میرحاج")
     st.markdown("</div>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
@@ -2745,7 +3030,7 @@ def signup_page():
 def login_page():
     st.markdown("<div class='iranian-border'>", unsafe_allow_html=True)
     st.markdown("<div class='persian-pattern' style='text-align: center;'>", unsafe_allow_html=True)
-    st.subheader("🔐 ورود به سامانه")
+    st.subheader("🔐 ورود به سامانه میرحاج")
     st.markdown("</div>", unsafe_allow_html=True)
     
     # اضافه کردن راهنمای پسورد ساده
@@ -2953,6 +3238,79 @@ def property_card(row: pd.Series, user: Optional[Dict[str,Any]]):
         
         st.markdown("</div>", unsafe_allow_html=True)
 
+def enhanced_property_card(row: pd.Series, user: Optional[Dict[str,Any]]):
+    """کارت ملک پیشرفته با قابلیت‌های AI"""
+    card_class = "card featured-card" if row.get('featured') else "card"
+    
+    with st.container():
+        st.markdown(f"<div class='{card_class}'>", unsafe_allow_html=True)
+        
+        col_title, col_price = st.columns([2, 1])
+        col_title.markdown(f"#### {row['title']}")
+        col_price.markdown(f"### {format_price(row['price'])}")
+        
+        if row.get('owner_verified'):
+            col_title.markdown("<span class='badge-verified'>✅ تأیید شده</span>", unsafe_allow_html=True)
+        
+        if row.get('featured'):
+            col_price.markdown("<span class='badge-premium'>⭐ ویژه</span>", unsafe_allow_html=True)
+        
+        st.markdown("<div style='display: flex; flex-wrap: wrap; margin: 10px 0;'>", unsafe_allow_html=True)
+        badge(f"🏠 {row['property_type']}")
+        badge(f"🏙️ {row['city']}")
+        badge(f"📏 {int(row['area'])} متر")
+        if row.get('rooms'): badge(f"🚪 {int(row['rooms'])} اتاق")
+        if row.get('building_age'): badge(f"🏚️ {int(row['building_age'])} سال")
+        if row.get('views'): badge(f"👀 {int(row['views'])} بازدید")
+        if row.get('owner_rating'): badge(f"⭐ {float(row['owner_rating']):.1f}")
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        if row.get("address"):
+            st.caption(f"📍 {row['address']}")
+        
+        if row.get("description"):
+            st.markdown(f"<div style='background:#f8f5ee;padding:15px;border-radius:12px;border-right:3px solid var(--gold);margin:10px 0;font-size:14px;line-height:1.6'>{row['description'][:200]}{'...' if len(row['description']) > 200 else ''}</div>", unsafe_allow_html=True)
+        
+        imgs = property_images(int(row["id"]))
+        if imgs:
+            try:
+                st.image(io.BytesIO(imgs[0]), use_column_width=True, caption="تصویر اصلی ملک")
+            except Exception:
+                try:
+                    st.image(base64.b64decode(imgs[0]), use_column_width=True, caption="تصویر اصلی ملک")
+                except Exception:
+                    pass
+        
+        cols = st.columns(6)  # افزایش به 6 ستون برای قابلیت‌های جدید
+        
+        if user:
+            if cols[0].button("❤️ علاقه‌مندی", key=f"fav_{row['id']}", use_container_width=True):
+                _ = toggle_fav(int(row['id']), user["email"])
+                st.success("✅ به علاقه‌مندی‌ها اضافه/حذف شد.")
+        
+        if row.get("video_url"):
+            cols[1].markdown(f"[🎥 تور ویدئویی]({row['video_url']})")
+        
+        if cols[2].button("🗺️ نمایش روی نقشه", key=f"map_{row['id']}", use_container_width=True):
+            st.map(pd.DataFrame([[row["latitude"],row["longitude"]]], columns=["lat","lon"]))
+        
+        if cols[3].button("📄 جزئیات", key=f"view_{row['id']}", use_container_width=True):
+            st.query_params["pg"] = "view"
+            st.query_params["pid"] = int(row['id'])
+            st.rerun()
+        
+        # قابلیت‌های جدید AI
+        if cols[4].button("🔍 تحلیل امنیتی", key=f"fraud_{row['id']}", use_container_width=True):
+            with st.expander("🔍 تحلیل امنیتی ملک", expanded=True):
+                show_fraud_analysis(dict(row))
+        
+        if user and user["email"] != row["owner_email"]:
+            if cols[5].button("💬 چانه‌زنی", key=f"negotiate_{row['id']}", use_container_width=True):
+                with st.expander("💬 دستیار چانه‌زنی", expanded=True):
+                    show_negotiation_assistant(dict(row), user)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+
 def image_files_to_bytes(uploaded_files)->List[bytes]:
     out = []
     for f in uploaded_files[:MAX_UPLOAD_IMAGES]:
@@ -2984,7 +3342,7 @@ def paginator(df: pd.DataFrame, page_size:int=8, key:str="pg")->pd.DataFrame:
 # =========================
 def agent_panel(user: Dict[str,Any]):
     st.markdown("<div class='traditional-header'>", unsafe_allow_html=True)
-    st.subheader("👔 پنل مشاور املاک")
+    st.subheader("👔 پنل مشاور املاک میرحاج")
     st.markdown("</div>", unsafe_allow_html=True)
     
     st.info("📊 مدیریت آگهی‌های خودت")
@@ -3037,7 +3395,7 @@ def agent_panel(user: Dict[str,Any]):
 # =========================
 def main():
     st.set_page_config(
-        page_title="املاک هوشمند جرقویه - نسخه حرفه‌ای", 
+        page_title="املاک هوشمند میرحاج - نسخه حرفه‌ای", 
         layout="wide", 
         page_icon="🏡",
         initial_sidebar_state="expanded"
@@ -3065,7 +3423,7 @@ def main():
 def show_auth_pages():
     """نمایش صفحات احراز هویت"""
     st.sidebar.markdown("<div class='persian-pattern' style='text-align: center; padding: 20px;'>", unsafe_allow_html=True)
-    st.sidebar.title("🏡 املاک هوشمند جرقویه")
+    st.sidebar.title("🏡 املاک هوشمند میرحاج")
     st.sidebar.markdown("</div>", unsafe_allow_html=True)
     
     page = st.sidebar.selectbox("📄 صفحه", ["خانه", "ورود", "ثبت‌نام"])
@@ -3080,14 +3438,14 @@ def show_auth_pages():
 def show_landing_page():
     """نمایش صفحه اصلی برای کاربران مهمان"""
     st.markdown("<div class='traditional-header'>", unsafe_allow_html=True)
-    st.title("🏡 املاک و مستغلات شهرستان جرقویه")
+    st.title("🏡 املاک و مستغلات میرحاج - نسخه هوشمند")
     st.markdown("</div>", unsafe_allow_html=True)
     
     st.markdown("<div class='iranian-border'>", unsafe_allow_html=True)
     st.markdown("""
     <div style='text-align: center; padding: 30px;'>
-        <h2>🌺 به سامانه هوشمند املاک شهرستان جرقویه خوش آمدید</h2>
-        <p>برای استفاده از تمامی امکانات سامانه، لطفاً وارد شوید یا ثبت‌نام کنید.</p>
+        <h2>🌺 به سامانه هوشمند املاک میرحاج خوش آمدید</h2>
+        <p>اولین سامانه املاک با هوش مصنوعی پیشرفته برای تحلیل بازار، تشخیص تقلب و چانه‌زنی هوشمند</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -3100,51 +3458,51 @@ def show_landing_page():
     
     st.markdown("""
     <div style='text-align: center;'>
-        <h3>✨ امکانات ویژه سامانه</h3>
+        <h3>✨ امکانات هوشمند سامانه میرحاج</h3>
     </div>
     """, unsafe_allow_html=True)
     
     features = st.columns(3)
     features[0].markdown("""
     <div style='text-align: center; padding: 15px; background: #f8f5ee; border-radius: 15px; margin: 10px;'>
-        <h4>🔍 جستجوی هوشمند</h4>
-        <p>پیدا کردن ملک با فیلترهای پیشرفته</p>
+        <h4>🔍 تشخیص تقلب هوشمند</h4>
+        <p>تحلیل خودکار املاک مشکوک با AI</p>
     </div>
     """, unsafe_allow_html=True)
     
     features[1].markdown("""
     <div style='text-align: center; padding: 15px; background: #f8f5ee; border-radius: 15px; margin: 10px;'>
-        <h4>🗺️ نقشه تعاملی</h4>
-        <p>نمایش موقعیت مکانی ملک روی نقشه</p>
+        <h4>💬 چانه‌زنی هوشمند</h4>
+        <p>دستیار AI برای بهترین استراتژی چانه‌زنی</p>
     </div>
     """, unsafe_allow_html=True)
     
     features[2].markdown("""
     <div style='text-align: center; padding: 15px; background: #f8f5ee; border-radius: 15px; margin: 10px;'>
-        <h4>🤖 پیشنهادات هوشمند</h4>
-        <p>سیستم پیشنهاد ملک بر اساس علاقه‌مندی‌ها</p>
+        <h4>📊 تحلیل بازار پیشرفته</h4>
+        <p>پیش‌بینی قیمت و روند بازار با ML</p>
     </div>
     """, unsafe_allow_html=True)
     
     features2 = st.columns(3)
     features2[0].markdown("""
     <div style='text-align: center; padding: 15px; background: #f8f5ee; border-radius: 15px; margin: 10px;'>
-        <h4>📊 گزارشات پیشرفته</h4>
-        <p>آنالیز عملکرد املاک و کاربران</p>
+        <h4>🤖 پیشنهادات شخصی</h4>
+        <p>سیستم پیشنهاد ملک بر اساس سلیقه شما</p>
     </div>
     """, unsafe_allow_html=True)
     
     features2[1].markdown("""
     <div style='text-align: center; padding: 15px; background: #f8f5ee; border-radius: 15px; margin: 10px;'>
-        <h4>💬 چت و پیام‌رسانی</h4>
-        <p>ارتباط مستقیم با مالکین و مشاورین</p>
+        <h4>🛡️ امنیت پیشرفته</h4>
+        <p>سیستم احراز هویت امن با هشینگ پیشرفته</p>
     </div>
     """, unsafe_allow_html=True)
     
     features2[2].markdown("""
     <div style='text-align: center; padding: 15px; background: #f8f5ee; border-radius: 15px; margin: 10px;'>
-        <h4>📱 پنل مدیریت</h4>
-        <p>مدیریت کامل املاک و کاربران</p>
+        <h4>📱 پنل مدیریت هوشمند</h4>
+        <p>مدیریت کامل با تحلیل‌های پیشرفته</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -3152,7 +3510,7 @@ def show_landing_page():
     
     # نمایش برخی از املاک ویژه
     st.markdown("<div class='iranian-border'>", unsafe_allow_html=True)
-    st.markdown("### 🏠 املاک ویژه")
+    st.markdown("### 🏠 املاک ویژه میرحاج")
     
     conn = get_conn(); c = conn.cursor()
     c.execute("SELECT * FROM properties WHERE status='published' AND featured=1 ORDER BY created_at DESC LIMIT 3")
@@ -3163,7 +3521,7 @@ def show_landing_page():
     if featured_props:
         featured_df = pd.DataFrame(featured_props, columns=cols)
         for _, row in featured_df.iterrows():
-            property_card(row, None)
+            enhanced_property_card(row, None)
     else:
         st.info("ℹ️ فعلاً ملک ویژه‌ای وجود ندارد.")
     st.markdown("</div>", unsafe_allow_html=True)
@@ -3173,7 +3531,7 @@ def show_main_application():
     user = st.session_state["user"]
     
     st.sidebar.markdown("<div class='persian-pattern' style='text-align: center; padding: 20px;'>", unsafe_allow_html=True)
-    st.sidebar.title("🏡 منوی اصلی")
+    st.sidebar.title("🏡 منوی اصلی میرحاج")
     st.sidebar.markdown("</div>", unsafe_allow_html=True)
     
     # اطلاعات کاربر
@@ -3182,7 +3540,7 @@ def show_main_application():
     st.sidebar.write(f"🎯 نقش: {user['role']}")
     
     if user["email"] == ADMIN_EMAIL:
-        st.sidebar.markdown("<span class='badge-premium'>⭐ مدیر سیستم</span>", unsafe_allow_html=True)
+        st.sidebar.markdown("<span class='badge-premium'>⭐ مدیر سیستم میرحاج</span>", unsafe_allow_html=True)
     
     st.sidebar.write(f"⭐ امتیاز: {calculate_user_rating(user['email'])}")
     st.sidebar.markdown("</div>", unsafe_allow_html=True)
@@ -3203,4 +3561,5 @@ def show_main_application():
 
 if __name__ == "__main__":
     main()
+    
 
